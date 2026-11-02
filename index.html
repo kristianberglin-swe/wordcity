@@ -116,7 +116,7 @@ function allWords(){game.innerHTML=`<p class="sub">Nya glosor · Alla 16 engelsk
 const VoiceAPI=window.SpeechRecognition||window.webkitSpeechRecognition;
 let iosUtterance=null; let voiceUnlocked=false;
 function unlockVoice(){try{if(!window.speechSynthesis)return false;const u=new SpeechSynthesisUtterance('');u.volume=0;window.speechSynthesis.speak(u);voiceUnlocked=true;return true}catch(e){return false}}
-function stopVoice(){if(!voiceState)return;const v=voiceState;voiceState=null;if(v.timer)clearInterval(v.timer);if(v.rec){v.rec.onresult=null;v.rec.onerror=null;v.rec.onend=null;try{v.rec.abort()}catch(e){}}}
+function stopVoice(){if(!voiceState)return;const v=voiceState;voiceState=null;if(v.timer)clearInterval(v.timer);if(v.watchdog)clearTimeout(v.watchdog);if(v.rec){v.rec.onresult=null;v.rec.onerror=null;v.rec.onend=null;try{v.rec.abort()}catch(e){}}}
 function voiceIntro(){
  game.innerHTML=`<div class="voice-panel"><div class="sub">Säg det engelska ordet som motsvarar den svenska glosan.</div><div class="voice-settings"><button class="btn ${voiceSeconds===5?'gold':''}" data-seconds="5">5 SEKUNDER</button><button class="btn ${voiceSeconds===10?'gold':''}" data-seconds="10">10 SEKUNDER</button></div><p class="voice-note">Tillåt mikrofonåtkomst när Safari frågar. Använd sidan via HTTPS, inte som en nedladdad lokal fil. På iPhone behöver Safari stöd för taligenkänning och en aktiv internetanslutning kan krävas.</p><div class="voice-status" id="voiceStatus">${VoiceAPI?'Redo att testa mikrofonen':'Safari erbjuder inte taligenkänning här. Du kan fortfarande lyssna på orden och hoppa över.'}</div><div class="voice-actions"><button class="btn gold" id="voiceBegin">🎙 STARTA VOICE CHALLENGE</button></div></div>`;
  game.querySelectorAll('[data-seconds]').forEach(b=>b.onclick=()=>{voiceSeconds=Number(b.dataset.seconds);voiceIntro()});
@@ -161,69 +161,48 @@ function voiceResolve(ok,message){
  const next=$('#voiceNext');if(next)next.onclick=()=>{if('speechSynthesis' in window)window.speechSynthesis.cancel();idx++;voiceQuestion()};
 }
 function voiceListen(word){
- if(!VoiceAPI){$('#voiceStatus').textContent='Taligenkänning stöds inte av denna Safari-version.';return}
- // Each word needs a NEW user-initiated listening session. iOS blocks silent automatic restarts.
+ if(!VoiceAPI){$('#voiceStatus').textContent='Safari stöder inte taligenkänning här. Prova HTTPS i Safari.';return}
  if(activeWordAudio){try{activeWordAudio.pause();activeWordAudio.currentTime=0}catch(e){}}
  stopVoice();
- const v={rec:null,timer:null,done:false,remaining:voiceSeconds,heard:[],started:false};voiceState=v;
+ const v={rec:null,timer:null,watchdog:null,done:false,remaining:voiceSeconds,heard:[],started:false,speech:false,finished:false};voiceState=v;
  const btn=$('#voiceListen');btn.disabled=true;
- const expected=normalize(word[0]);const deadline=Date.now()+voiceSeconds*1000;
+ const clock=$('#voiceCountdown');if(clock)clock.textContent=voiceSeconds;
+ const heardEl=$('#voiceHeard');if(heardEl)heardEl.textContent='';
+ const expected=normalize(word[0]);
  const status=(t,color)=>{const el=$('#voiceStatus');if(el){el.textContent=t;if(color)el.style.color=color}};
+ const retry=(msg)=>{if(voiceState!==v||v.done)return;if(v.timer)clearInterval(v.timer);if(v.watchdog)clearTimeout(v.watchdog);v.timer=null;v.watchdog=null;btn.disabled=false;status(msg+' Tryck på mikrofonen igen.','#ffd26e');try{if(v.rec){v.rec.onend=null;v.rec.abort()}}catch(e){}v.rec=null;};
+ const beginTimer=()=>{if(v.timer||v.done)return;let deadline=Date.now()+voiceSeconds*1000;v.timer=setInterval(()=>{
+  if(v.done||voiceState!==v)return;
+  v.remaining=Math.max(0,Math.ceil((deadline-Date.now())/1000));if(clock)clock.textContent=v.remaining;
+  if(v.remaining===0){clearInterval(v.timer);v.timer=null;try{v.rec&&v.rec.stop()}catch(e){}
+   setTimeout(()=>{if(voiceState!==v||v.done)return;if(v.heard.length)voiceResolve(false,'TIDEN UTE – Safari hörde: '+v.heard[0]+' · Rätt ord: '+word[0]);else retry('Inget ord registrerades.');},1500);
+  }
+ },100)};
  let rec;
- try{
-  rec=new VoiceAPI();rec.lang='en-US';rec.continuous=false;rec.interimResults=true;rec.maxAlternatives=5;v.rec=rec;
- }catch(e){status('Kan inte skapa mikrofon: '+e.message);btn.disabled=false;stopVoice();return}
- rec.onstart=()=>{if(voiceState!==v||v.done)return;v.started=true;status('🟢 MIKROFON AKTIV – säg ordet nu','#57f3a4')};
- rec.onaudiostart=()=>{if(voiceState===v&&!v.done)status('🟢 MIKROFONEN HÖR LJUD – säg engelska ordet','#57f3a4')};
- rec.onspeechstart=()=>{if(voiceState===v&&!v.done)status('🎙 TAL UPPTÄCKT – tolkar ditt ord …','#57f3a4')};
+ try{rec=new VoiceAPI();rec.lang='en-US';rec.continuous=false;rec.interimResults=true;rec.maxAlternatives=5;v.rec=rec}
+ catch(e){retry('Kunde inte skapa mikrofonen: '+e.message);return}
+ // Give Safari time to request permission and actually open the microphone.
+ v.watchdog=setTimeout(()=>{if(!v.started&&!v.done&&voiceState===v)retry('Mikrofonen startade inte inom 12 sekunder.')},12000);
+ rec.onstart=()=>{if(v.done||voiceState!==v)return;v.started=true;clearTimeout(v.watchdog);status('🟢 MIKROFON AKTIV – säg ordet nu','#57f3a4');beginTimer()};
+ rec.onaudiostart=()=>{if(v.done||voiceState!==v)return;status('🟢 LJUDMOTTAGNING AKTIV – säg ordet','#57f3a4')};
+ rec.onspeechstart=()=>{if(v.done||voiceState!==v)return;v.speech=true;status('🎙 TAL UPPTÄCKT – tolkar …','#57f3a4')};
  rec.onresult=e=>{
   if(v.done||voiceState!==v)return;
   const variants=[];let final=false;
-  for(let i=0;i<e.results.length;i++){
-   const r=e.results[i];if(r.isFinal)final=true;
-   for(let j=0;j<r.length;j++)if(r[j].transcript.trim())variants.push(r[j].transcript.trim());
-  }
-  if(!variants.length)return;
-  v.heard=variants;
-  const heard=$('#voiceHeard');if(heard){heard.textContent='🎙 REGISTRERAT: ”'+variants[0]+'”';heard.style.color='#ffd26e'};
+  for(let i=0;i<e.results.length;i++){const r=e.results[i];if(r.isFinal)final=true;for(let j=0;j<r.length;j++)if(r[j].transcript.trim())variants.push(r[j].transcript.trim())}
+  if(!variants.length)return;v.heard=variants;
+  if(heardEl){heardEl.textContent='🎙 REGISTRERAT: ”'+variants[0]+'”';heardEl.style.color='#ffd26e'};
   const matched=variants.some(t=>normalize(t)===expected||normalize(t).split(/\s+/).includes(expected));
-  if(matched){if(heard)heard.style.color='#57f3a4';voiceResolve(true,'✓ RÄTT! Safari hörde: '+variants[0]);return}
+  if(matched){if(heardEl)heardEl.style.color='#57f3a4';voiceResolve(true,'✓ RÄTT! Safari hörde: '+variants[0]);return}
   if(final){voiceResolve(false,'✕ Safari hörde: '+variants[0]+' · Rätt ord: '+word[0]);return}
-  status('🎙 ORDET REGISTRERAT – väntar på slutligt resultat','#ffd26e');
+  status('🎙 ORDET REGISTRERAT – inväntar slutligt resultat','#ffd26e');
  };
- rec.onerror=e=>{
-  if(v.done||voiceState!==v)return;
-  const err=e.error||'okänt fel';
-  if(err==='aborted')return;
-  // Do not count a Safari microphone failure as a wrong vocabulary answer.
-  if(v.timer)clearInterval(v.timer);v.timer=null;
-  btn.disabled=false;
-  status(err==='not-allowed'||err==='service-not-allowed'?'Mikrofonåtkomst nekad. Kontrollera Safari-inställningar.':err==='network'?'Safaris taligenkänning saknar nätverkskontakt.':err==='no-speech'?'Inget tal uppfattades. Tryck på mikrofonen för att försöka igen.':'Mikrofonfel: '+err+'. Tryck på mikrofonen igen.','#ff8585');
-  try{rec.onend=null;rec.abort()}catch(ex){}
-  v.rec=null;
+ rec.onerror=e=>{if(v.done||voiceState!==v)return;const err=e.error||'okänt fel';if(err==='aborted')return;
+  const message=err==='not-allowed'||err==='service-not-allowed'?'Mikrofonåtkomst nekad. Kontrollera Safari-inställningarna.':err==='network'?'Safaris taligenkänning har nätverksproblem.':err==='no-speech'?'Safari uppfattade inget tal.':'Taligenkänning misslyckades ('+err+').';retry(message)
  };
- rec.onend=()=>{
-  if(v.done||voiceState!==v)return;
-  if(v.timer)clearInterval(v.timer);v.timer=null;
-  btn.disabled=false;
-  // No silent restart: iPhone Safari often requires a fresh tap.
-  status(v.heard.length?'Lyssningen avslutad. Tryck på mikrofonen för att försöka igen.':'Safari slutade lyssna. Tryck på mikrofonen igen.','#ffd26e');
-  v.rec=null;
- };
- try{
-  rec.start();status('🎙 STARTAR MIKROFON …','#57f3a4');
- }catch(e){status('Safari kunde inte starta mikrofonen: '+e.message);btn.disabled=false;stopVoice();return}
- v.timer=setInterval(()=>{
-  if(v.done||voiceState!==v)return;
-  v.remaining=Math.max(0,Math.ceil((deadline-Date.now())/1000));
-  const clock=$('#voiceCountdown');if(clock)clock.textContent=v.remaining;
-  if(v.remaining===0){
-   if(v.timer)clearInterval(v.timer);v.timer=null;
-   try{rec.stop()}catch(e){}
-   // Let Safari deliver its final result before declaring timeout.
-   setTimeout(()=>{if(voiceState===v&&!v.done)voiceResolve(false,v.heard.length?'TIDEN UTE – Safari hörde: '+v.heard[0]+' · Rätt ord: '+word[0]:'TIDEN UTE – inget ord registrerades. Rätt ord: '+word[0])},900);
-  }
- },100);
+ rec.onend=()=>{if(v.done||voiceState!==v)return;if(v.heard.length){setTimeout(()=>{if(voiceState===v&&!v.done)retry('Safari avslutade lyssningen utan slutligt svar.')},400)}else retry('Safari avslutade lyssningen utan att registrera tal.')};
+ try{rec.start();status('🎙 STARTAR MIKROFON – väntar på Safari …','#57f3a4')}
+ catch(e){retry('Safari kunde inte starta mikrofonen: '+e.message)}
 }
 
 </script><script id="wanted-progress-logic">
