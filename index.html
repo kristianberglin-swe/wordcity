@@ -148,12 +148,11 @@ function voiceResolve(ok,message){
  const status=$('#voiceStatus');if(status){status.textContent=message;status.style.color=ok?'#57f3a4':'#ff8585'}
  const answer=WORDS[order[idx]][0];
  const actions=game.querySelector('.voice-actions');
- if(actions)actions.innerHTML=ok?'<button class="btn gold" id="voiceNext">NÄSTA →</button>':'<button class="btn gold" id="voiceReplay">🔊 LYSSNA IGEN</button><button class="btn" id="voiceNext">NÄSTA →</button>';
- if(!ok){
-  const heard=$('#voiceHeard');if(heard)heard.textContent='RÄTT UTTAL: '+answer;
-  const replay=$('#voiceReplay');if(replay)replay.onclick=()=>pronounceEnglish(answer);
-  pronounceEnglish(answer);
- }
+ if(actions)actions.innerHTML='<button class="btn gold" id="voiceReplay">🔊 LYSSNA IGEN</button><button class="btn" id="voiceNext">NÄSTA →</button>';
+ const heard=$('#voiceHeard');if(heard)heard.textContent='RÄTT UTTAL: '+answer;
+ const replay=$('#voiceReplay');if(replay)replay.onclick=()=>pronounceEnglish(answer);
+ // Läs alltid upp det rätta engelska ordet, både vid rätt och fel svar.
+ pronounceEnglish(answer);
  const next=$('#voiceNext');if(next)next.onclick=()=>{if('speechSynthesis' in window)window.speechSynthesis.cancel();idx++;voiceQuestion()};
 }
 function voiceListen(word){
