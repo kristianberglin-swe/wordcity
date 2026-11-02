@@ -205,6 +205,48 @@ function voiceListen(word){
  catch(e){retry('Safari kunde inte starta mikrofonen: '+e.message)}
 }
 
+
+/* iPhone-safe alternative: native keyboard dictation, no repeated Web Speech API sessions. */
+function voiceQuestion(){
+ stopVoice();if(mode!=='voice')return;if(idx>=order.length)return finish();
+ const word=WORDS[order[idx]];
+ game.innerHTML=`<div class="voice-panel">${topProgress()}<div class="sub">SÄG DET ENGELSKA ORDET FÖR</div><div class="question">${esc(word[1])}</div><div class="voice-status" id="voiceStatus" role="status" aria-live="polite">Tryck i rutan och använd 🎙 på iPhones tangentbord</div><input id="nativeDictation" type="text" lang="en" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done" placeholder="Tryck här → 🎙 på tangentbordet" style="width:100%;box-sizing:border-box;font-size:20px;padding:17px 14px;border:2px solid #f2b95c;border-radius:12px;background:#161b2a;color:white;margin:14px 0"/><div class="voice-heard" id="voiceHeard" aria-live="polite">Väntar på ditt ord …</div><div class="voice-actions" id="dictationActions"><button class="btn gold" id="dictationCheck">KONTROLLERA SVAR</button><button class="btn" id="voiceSkip">HOPPA ÖVER</button><button class="btn" id="voiceTestSound">🔊 HÖR ORDET</button></div><p class="voice-note">Använd mikrofonen på iPhones tangentbord (inte en mikrofonknapp på sidan). iOS sköter lyssningen. Du kan även skriva ordet. Nedräkning är avstängd i detta läge så att dikteringen inte avbryts.</p></div>`;
+ const input=$('#nativeDictation'), status=$('#voiceStatus'), heard=$('#voiceHeard'), actions=$('#dictationActions');
+ let settled=false;
+ const normalizeAnswer=v=>normalize(v).replace(/[.,!?;:]+$/g,'').trim();
+ const evaluate=(force=false)=>{
+  if(settled)return;
+  const raw=input.value.trim();
+  if(!raw){if(force)status.textContent='Inget ord registrerat ännu. Tryck i rutan och använd tangentbordets mikrofon.';return}
+  heard.textContent='🎙 REGISTRERAT: ”'+raw+'”';
+  const got=normalizeAnswer(raw), expected=normalizeAnswer(word[0]);
+  if(got===expected){complete(true,raw);return}
+  if(force)complete(false,raw);
+  else {status.textContent='ORD MOTTAGET – tryck KONTROLLERA SVAR eller rätta texten';status.style.color='#ffd26e'}
+ };
+ const complete=(ok,raw,skip=false)=>{
+  if(settled)return;settled=true;input.blur();input.disabled=true;
+  if(ok)correct++;else wrong++;
+  status.textContent=ok?'✓ RÄTT! iPhone registrerade: '+raw:skip?'ÖVERHOPPAT · Rätt svar: '+word[0]:'✕ iPhone registrerade: '+raw+' · Rätt svar: '+word[0];
+  status.style.color=ok?'#57f3a4':'#ff8585';
+  heard.textContent=ok?'✓ UTTAL/ORD REGISTRERAT: '+raw:'RÄTT ENGELSKT ORD: '+word[0];
+  heard.style.color=ok?'#57f3a4':'#ffd26e';
+  actions.innerHTML='<button class="btn gold" id="voiceNext">NÄSTA →</button><button class="btn" id="voiceReplay">🔊 LYSSNA PÅ ORDET</button>';
+  $('#voiceNext').onclick=()=>{idx++;voiceQuestion()};
+  $('#voiceReplay').onclick=()=>pronounceEnglish(word[0]);
+ };
+ input.addEventListener('input',()=>evaluate(false));
+ input.addEventListener('change',()=>evaluate(false));
+ input.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();evaluate(true)}});
+ $('#dictationCheck').onclick=()=>evaluate(true);
+ $('#voiceSkip').onclick=()=>complete(false,'',true);
+ $('#voiceTestSound').onclick=()=>{const ok=pronounceEnglish(word[0]);if(!ok)status.textContent='Ljudet kunde inte spelas.'};
+}
+function voiceIntro(){
+ game.innerHTML=`<div class="voice-panel"><div class="sub">NYTT IPHONE-LÄGE: DIKTERING</div><p class="voice-note">Den tidigare mikrofonfunktionen fungerade bara för första glosan på vissa iPhones. Nu används iPhones inbyggda tangentbordsdiktering i stället. Tryck i textrutan och sedan på 🎙 på iPhones tangentbord. Du får direkt bekräftelse på vilket ord som registrerats. Du kan också skriva.</p><p class="voice-note">För att aktivera diktering på iPhone: Inställningar → Allmänt → Tangentbord → Aktivera diktering. Tidsgränsen är avstängd eftersom iOS styr hur länge dikteringen pågår.</p><div class="voice-actions"><button class="btn gold" id="voiceBegin">STARTA VOICE CHALLENGE →</button></div></div>`;
+ $('#voiceBegin').onclick=()=>{idx=0;correct=0;wrong=0;voiceQuestion()};
+}
+
 </script><script id="wanted-progress-logic">
 (function(){
  const KEY='wordcity_nya16_wanted_v1';
