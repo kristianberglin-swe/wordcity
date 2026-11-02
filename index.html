@@ -121,18 +121,40 @@ function voiceIntro(){
  const b=$('#voiceBegin');if(b)b.onclick=()=>{idx=0;correct=0;wrong=0;voiceQuestion()};
 }
 function voiceQuestion(){
+ if('speechSynthesis' in window)window.speechSynthesis.cancel();
  stopVoice();if(mode!=='voice')return;if(idx>=order.length)return finish();
  const word=WORDS[order[idx]];const duration=voiceSeconds;
  game.innerHTML=`<div class="voice-panel">${topProgress()}<div class="sub">SÄG DET ENGELSKA ORDET FÖR</div><div class="question">${esc(word[1])}</div><div class="voice-time" id="voiceCountdown">${duration}</div><div class="voice-status" id="voiceStatus">Tryck på mikrofonen för att börja</div><div class="voice-heard" id="voiceHeard" aria-live="polite"></div><div class="voice-actions"><button class="btn gold" id="voiceListen">🎙 SVARA MED RÖSTEN</button><button class="btn" id="voiceSkip">HOPPA ÖVER</button></div><p class="voice-note">Tiden börjar när du trycker på mikrofonen. Tala tydligt på engelska.</p></div>`;
  $('#voiceListen').onclick=()=>voiceListen(word);
  $('#voiceSkip').onclick=()=>{if(!voiceState)voiceState={done:false,timer:null,rec:null};voiceResolve(false,'Överhoppat. Rätt svar: '+word[0])};
 }
+// Read the correct English word aloud after an incorrect answer.
+function pronounceEnglish(word){
+ if(!('speechSynthesis' in window))return false;
+ try{
+  window.speechSynthesis.cancel();
+  const utterance=new SpeechSynthesisUtterance(word);
+  utterance.lang='en-US';utterance.rate=0.82;utterance.pitch=1;
+  const voices=window.speechSynthesis.getVoices();
+  const english=voices.find(v=>v.lang.toLowerCase()==='en-us')||voices.find(v=>v.lang.toLowerCase().startsWith('en'));
+  if(english)utterance.voice=english;
+  window.speechSynthesis.speak(utterance);
+  return true;
+ }catch(e){return false}
+}
 function voiceResolve(ok,message){
  const v=voiceState;if(!v||v.done||mode!=='voice')return;v.done=true;
  stopVoice();if(ok)correct++;else wrong++;
  const status=$('#voiceStatus');if(status){status.textContent=message;status.style.color=ok?'#57f3a4':'#ff8585'}
- const actions=game.querySelector('.voice-actions');if(actions)actions.innerHTML='<button class="btn gold" id="voiceNext">NÄSTA →</button>';
- const next=$('#voiceNext');if(next)next.onclick=()=>{idx++;voiceQuestion()};
+ const answer=WORDS[order[idx]][0];
+ const actions=game.querySelector('.voice-actions');
+ if(actions)actions.innerHTML=ok?'<button class="btn gold" id="voiceNext">NÄSTA →</button>':'<button class="btn gold" id="voiceReplay">🔊 LYSSNA IGEN</button><button class="btn" id="voiceNext">NÄSTA →</button>';
+ if(!ok){
+  const heard=$('#voiceHeard');if(heard)heard.textContent='RÄTT UTTAL: '+answer;
+  const replay=$('#voiceReplay');if(replay)replay.onclick=()=>pronounceEnglish(answer);
+  pronounceEnglish(answer);
+ }
+ const next=$('#voiceNext');if(next)next.onclick=()=>{if('speechSynthesis' in window)window.speechSynthesis.cancel();idx++;voiceQuestion()};
 }
 function voiceListen(word){
  if(!VoiceAPI){$('#voiceStatus').textContent='Taligenkänning stöds inte i denna Safari-version.';return}
