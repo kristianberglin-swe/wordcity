@@ -78,12 +78,12 @@ const $=s=>document.querySelector(s);const game=$('#game');let voiceState=null;l
 const shuffle=a=>{let b=[...a];for(let i=b.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[b[i],b[j]]=[b[j],b[i]]}return b};
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function clearTimer(){if(arenaTimer){if(typeof arenaTimer.stop==='function')arenaTimer.stop();else clearInterval(arenaTimer);arenaTimer=null}}
-function home(){stopVoice();clearTimer();$('#screen').classList.remove('active');$('#home').style.display='block';game.innerHTML='';}
+function home(){voiceSession++;stopVoice();clearTimer();$('#screen').classList.remove('active');$('#home').style.display='block';game.innerHTML='';}
 $('#back').addEventListener('click',home);
-function start(m){stopVoice();if(m==='all'&&window.wordCityWanted)window.wordCityWanted.add('all');clearTimer();mode=m;order=shuffle(WORDS.map((_,i)=>i));idx=0;correct=0;wrong=0;locked=false;matched=0;lives=3;$('#home').style.display='none';$('#screen').classList.add('active');$('#modeTitle').textContent=({match:'MATCHA',click:'KLICKA',write:'SKRIV',shoot:'SHOOTOUT',all:'SE ALLA ORDEN',voice:'VOICE CHALLENGE'})[m];if(m==='voice')return voiceIntro();if(m==='all')return allWords();if(m==='match')return matchStart();if(m==='write')return writeStart();if(m==='shoot')return shootQuestion();clickQuestion()}
+function start(m){voiceSession++;stopVoice();if(m==='all'&&window.wordCityWanted)window.wordCityWanted.add('all');clearTimer();mode=m;order=shuffle(WORDS.map((_,i)=>i));idx=0;correct=0;wrong=0;locked=false;matched=0;lives=3;$('#home').style.display='none';$('#screen').classList.add('active');$('#modeTitle').textContent=({match:'MATCHA',click:'KLICKA',write:'SKRIV',shoot:'SHOOTOUT',all:'SE ALLA ORDEN',voice:'VOICE CHALLENGE'})[m];if(m==='voice')return voiceIntro();if(m==='all')return allWords();if(m==='match')return matchStart();if(m==='write')return writeStart();if(m==='shoot')return shootQuestion();clickQuestion()}
 document.querySelectorAll('[data-mode]').forEach(el=>el.addEventListener('click',()=>start(el.dataset.mode)));
 function topProgress(n=idx,total=WORDS.length){return `<div class="sub">${Math.min(n,total)} / ${total} · ${correct} rätt</div><div class="progress"><div style="width:${100*Math.min(n,total)/total}%"></div></div>`}
-function finish(extra=''){stopVoice();if(window.wordCityWanted)window.wordCityWanted.add(mode);clearTimer();game.innerHTML=`<div class="summary"><h3>UPPDRAG SLUTFÖRT</h3><p><strong>${correct}</strong> rätt ${extra}</p><p>${wrong} fel</p><div class="row"><button class="btn gold" id="again">SPELA IGEN</button><button class="btn" id="endhome">TILL MENYN</button></div></div>`;$('#again').onclick=()=>start(mode);$('#endhome').onclick=home}
+function finish(extra=''){voiceSession++;stopVoice();if(window.wordCityWanted)window.wordCityWanted.add(mode);clearTimer();game.innerHTML=`<div class="summary"><h3>UPPDRAG SLUTFÖRT</h3><p><strong>${correct}</strong> rätt ${extra}</p><p>${wrong} fel</p><div class="row"><button class="btn gold" id="again">SPELA IGEN</button><button class="btn" id="endhome">TILL MENYN</button></div></div>`;$('#again').onclick=()=>start(mode);$('#endhome').onclick=home}
 function nextButton(fn){const b=$('#next');if(b)b.onclick=fn}
 function clickQuestion(){if(idx>=order.length)return finish();locked=false;let w=WORDS[order[idx]],others=shuffle(WORDS.filter(x=>x!==w).map(x=>x[1])).slice(0,3);let opts=shuffle([w[1],...others]);game.innerHTML=topProgress()+`<div class="sub">Välj rätt svensk översättning</div><div class="question">${esc(w[0])}</div><div class="answers">${opts.map(x=>`<button class="answer" data-answer="${esc(x)}">${esc(x)}</button>`).join('')}</div><div class="feedback" id="fb"></div><div class="center"><button class="btn gold" id="next" hidden>NÄSTA →</button></div>`;document.querySelectorAll('.answer').forEach(b=>b.onclick=()=>{if(locked)return;locked=true;let ok=b.dataset.answer===w[1];ok?correct++:wrong++;document.querySelectorAll('.answer').forEach(a=>{a.disabled=true;if(a.dataset.answer===w[1])a.classList.add('correct');else if(a===b)a.classList.add('wrong')});$('#fb').textContent=ok?'RÄTT!':'Rätt svar: '+w[1];$('#fb').className='feedback '+(ok?'good':'bad');$('#next').hidden=false;});nextButton(()=>{idx++;clickQuestion()})}
 function writeStart(){game.innerHTML=`<div class="sub">Välj hjälpnivå – 1 är lättast och 5 är svårast</div><div class="levels">${[1,2,3,4,5].map(n=>`<button class="btn ${n===level?'chosen':''}" data-level="${n}">${n}</button>`).join('')}</div><div class="center"><button class="btn gold" id="begin">STARTA SKRIV</button></div>`;document.querySelectorAll('[data-level]').forEach(b=>b.onclick=()=>{level=+b.dataset.level;writeStart()});$('#begin').onclick=writeQuestion}
@@ -114,33 +114,37 @@ function allWords(){game.innerHTML=`<p class="sub">Nya glosor · Alla 16 engelsk
 
 // VOICE CHALLENGE: desktop browser SpeechRecognition.
 const VoiceAPI=window.SpeechRecognition||window.webkitSpeechRecognition;
-function stopVoice(){if(!voiceState)return;const v=voiceState;voiceState=null;if(v.timer)clearInterval(v.timer);if(v.rec){v.rec.onresult=null;v.rec.onerror=null;v.rec.onend=null;try{v.rec.abort()}catch(e){}}}
+let voiceAuto=false,voiceSession=0,voiceAdvanceTimer=null;
+function stopVoice(){if(voiceAdvanceTimer){clearTimeout(voiceAdvanceTimer);voiceAdvanceTimer=null}if(!voiceState)return;const v=voiceState;voiceState=null;if(v.timer)clearInterval(v.timer);if(v.rec){v.rec.onresult=null;v.rec.onerror=null;v.rec.onend=null;try{v.rec.abort()}catch(e){}}}
 function voiceIntro(){
- game.innerHTML=`<div class="voice-panel"><div class="sub">Säg det engelska ordet som motsvarar den svenska glosan.</div><div class="voice-settings"><button class="btn ${voiceSeconds===5?'gold':''}" data-seconds="5">5 SEKUNDER</button><button class="btn ${voiceSeconds===10?'gold':''}" data-seconds="10">10 SEKUNDER</button></div><p class="voice-note">DATORVERSION: Öppna i Google Chrome eller Microsoft Edge på datorn via HTTPS. Tillåt mikrofonen när webbläsaren frågar. Taligenkänning kan kräva internetanslutning. Mobilversion stöds inte.</p><div class="voice-status" id="voiceStatus">${VoiceAPI?'Redo att testa mikrofonen':'Taligenkänning stöds inte av den här webbläsaren.'}</div><div class="voice-actions"><button class="btn gold" id="voiceBegin" ${VoiceAPI?'':'disabled'}>🎙 STARTA VOICE CHALLENGE</button></div></div>`;
+ game.innerHTML=`<div class="voice-panel"><div class="sub">Säg det engelska ordet som motsvarar den svenska glosan.</div><div class="voice-settings"><button class="btn ${voiceSeconds===5?'gold':''}" data-seconds="5">5 SEKUNDER</button><button class="btn ${voiceSeconds===10?'gold':''}" data-seconds="10">10 SEKUNDER</button></div><div class="voice-settings"><button class="btn ${voiceAuto?'gold':''}" id="voiceAutoMode">⚡ AUTOMATISKT LÄGE</button><button class="btn ${!voiceAuto?'gold':''}" id="voiceManualMode">🎙 MANUELLT LÄGE</button></div><p class="voice-note">DATORVERSION: Öppna i Google Chrome eller Microsoft Edge på datorn via HTTPS. Tillåt mikrofonen när webbläsaren frågar. Taligenkänning kan kräva internetanslutning. Mobilversion stöds inte.</p><div class="voice-status" id="voiceStatus">${VoiceAPI?'Redo att testa mikrofonen':'Taligenkänning stöds inte av den här webbläsaren.'}</div><div class="voice-actions"><button class="btn gold" id="voiceBegin" ${VoiceAPI?'':'disabled'}>🎙 STARTA VOICE CHALLENGE</button></div></div>`;
  game.querySelectorAll('[data-seconds]').forEach(b=>b.onclick=()=>{voiceSeconds=Number(b.dataset.seconds);voiceIntro()});
- const b=$('#voiceBegin');if(b)b.onclick=()=>{idx=0;correct=0;wrong=0;voiceQuestion()};
+ $('#voiceAutoMode').onclick=()=>{voiceAuto=true;voiceIntro()};$('#voiceManualMode').onclick=()=>{voiceAuto=false;voiceIntro()};
+ const b=$('#voiceBegin');if(b)b.onclick=()=>{idx=0;correct=0;wrong=0;voiceSession++;voiceQuestion()};
 }
 function voiceQuestion(){
  if('speechSynthesis' in window)window.speechSynthesis.cancel();
  stopVoice();if(mode!=='voice')return;if(idx>=order.length)return finish();
  const word=WORDS[order[idx]];const duration=voiceSeconds;
- game.innerHTML=`<div class="voice-panel">${topProgress()}<div class="sub">SÄG DET ENGELSKA ORDET FÖR</div><div class="question">${esc(word[1])}</div><div class="voice-time" id="voiceCountdown">${duration}</div><div class="voice-status" id="voiceStatus">Tryck på mikrofonen för att börja</div><div class="voice-heard" id="voiceHeard" aria-live="polite"></div><div class="voice-actions"><button class="btn gold" id="voiceListen">🎙 SVARA MED RÖSTEN</button><button class="btn" id="voiceSkip">HOPPA ÖVER</button></div><p class="voice-note">Tiden börjar när du trycker på mikrofonen. Tala tydligt på engelska.</p></div>`;
+ game.innerHTML=`<div class="voice-panel">${topProgress()}<div class="sub">SÄG DET ENGELSKA ORDET FÖR</div><div class="question">${esc(word[1])}</div><div class="voice-time" id="voiceCountdown">${duration}</div><div class="voice-status" id="voiceStatus">${voiceAuto?'Startar mikrofonen automatiskt …':'Tryck på mikrofonen för att börja'}</div><div class="voice-heard" id="voiceHeard" aria-live="polite"></div><div class="voice-actions"><button class="btn gold" id="voiceListen">🎙 SVARA MED RÖSTEN</button><button class="btn" id="voiceSkip">HOPPA ÖVER</button></div><p class="voice-note">${voiceAuto?'Automatiskt läge: säg ordet, lyssna på rätt uttal och invänta nästa glosa.':'Tiden börjar när du trycker på mikrofonen. Tala tydligt på engelska.'}</p></div>`;
  $('#voiceListen').onclick=()=>voiceListen(word);
+ if(voiceAuto){$('#voiceListen').style.display='none';const session=voiceSession;setTimeout(()=>{if(mode==='voice'&&voiceAuto&&session===voiceSession&&idx<order.length&&!voiceState)voiceListen(word)},350)}
  $('#voiceSkip').onclick=()=>{if(!voiceState)voiceState={done:false,timer:null,rec:null};voiceResolve(false,'Överhoppat. Rätt svar: '+word[0])};
 }
 // Read the correct English word aloud after an incorrect answer.
-function pronounceEnglish(word){
- if(!('speechSynthesis' in window))return false;
+function pronounceEnglish(word,onDone){
+ if(!('speechSynthesis' in window)){if(onDone)onDone();return false;}
  try{
   window.speechSynthesis.cancel();
   const utterance=new SpeechSynthesisUtterance(word);
   utterance.lang='en-US';utterance.rate=0.82;utterance.pitch=1;
+  if(onDone){let completed=false;const complete=()=>{if(!completed){completed=true;onDone()}};utterance.onend=complete;utterance.onerror=complete;}
   const voices=window.speechSynthesis.getVoices();
   const english=voices.find(v=>v.lang.toLowerCase()==='en-us')||voices.find(v=>v.lang.toLowerCase().startsWith('en'));
   if(english)utterance.voice=english;
   window.speechSynthesis.speak(utterance);
   return true;
- }catch(e){return false}
+ }catch(e){if(onDone)onDone();return false}
 }
 function voiceResolve(ok,message){
  const v=voiceState;if(!v||v.done||mode!=='voice')return;v.done=true;
@@ -152,8 +156,13 @@ function voiceResolve(ok,message){
  const heard=$('#voiceHeard');if(heard)heard.textContent='RÄTT UTTAL: '+answer;
  const replay=$('#voiceReplay');if(replay)replay.onclick=()=>pronounceEnglish(answer);
  // Läs alltid upp det rätta engelska ordet, både vid rätt och fel svar.
- pronounceEnglish(answer);
- const next=$('#voiceNext');if(next)next.onclick=()=>{if('speechSynthesis' in window)window.speechSynthesis.cancel();idx++;voiceQuestion()};
+ if(voiceAuto){
+  const session=voiceSession;let scheduled=false;const advance=()=>{if(scheduled)return;scheduled=true;voiceAdvanceTimer=setTimeout(()=>{voiceAdvanceTimer=null;if(mode!=='voice'||!voiceAuto||session!==voiceSession)return;idx++;voiceQuestion()},900)};
+  pronounceEnglish(answer,advance);
+  // Reserv om talmotorn inte skickar onend.
+  setTimeout(()=>{if(mode==='voice'&&voiceAuto&&session===voiceSession)advance()},Math.max(3000,answer.length*210+1400));
+ }else pronounceEnglish(answer);
+ const next=$('#voiceNext');if(next){if(voiceAuto)next.textContent='NÄSTA NU →';next.onclick=()=>{voiceSession++;voiceAuto=voiceAuto;if('speechSynthesis' in window)window.speechSynthesis.cancel();idx++;voiceQuestion()};}
 }
 function voiceListen(word){
  if(!VoiceAPI){$('#voiceStatus').textContent='Taligenkänning stöds inte i denna Safari-version.';return}
