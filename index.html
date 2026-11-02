@@ -114,18 +114,21 @@ function allWords(){game.innerHTML=`<p class="sub">Nya glosor · Alla 16 engelsk
 
 // VOICE CHALLENGE: SpeechRecognition on supported iOS Safari versions.
 const VoiceAPI=window.SpeechRecognition||window.webkitSpeechRecognition;
+let iosUtterance=null; let voiceUnlocked=false;
+function unlockVoice(){try{if(!window.speechSynthesis)return false;const u=new SpeechSynthesisUtterance('');u.volume=0;window.speechSynthesis.speak(u);voiceUnlocked=true;return true}catch(e){return false}}
 function stopVoice(){if(!voiceState)return;const v=voiceState;voiceState=null;if(v.timer)clearInterval(v.timer);if(v.rec){v.rec.onresult=null;v.rec.onerror=null;v.rec.onend=null;try{v.rec.abort()}catch(e){}}}
 function voiceIntro(){
- game.innerHTML=`<div class="voice-panel"><div class="sub">Säg det engelska ordet som motsvarar den svenska glosan.</div><div class="voice-settings"><button class="btn ${voiceSeconds===5?'gold':''}" data-seconds="5">5 SEKUNDER</button><button class="btn ${voiceSeconds===10?'gold':''}" data-seconds="10">10 SEKUNDER</button></div><p class="voice-note">Tillåt mikrofonåtkomst när Safari frågar. Använd sidan via HTTPS, inte som en nedladdad lokal fil. På iPhone behöver Safari stöd för taligenkänning och en aktiv internetanslutning kan krävas.</p><div class="voice-status" id="voiceStatus">${VoiceAPI?'Redo att testa mikrofonen':'Taligenkänning stöds inte av den här webbläsaren.'}</div><div class="voice-actions"><button class="btn gold" id="voiceBegin" ${VoiceAPI?'':'disabled'}>🎙 STARTA VOICE CHALLENGE</button></div></div>`;
+ game.innerHTML=`<div class="voice-panel"><div class="sub">Säg det engelska ordet som motsvarar den svenska glosan.</div><div class="voice-settings"><button class="btn ${voiceSeconds===5?'gold':''}" data-seconds="5">5 SEKUNDER</button><button class="btn ${voiceSeconds===10?'gold':''}" data-seconds="10">10 SEKUNDER</button></div><p class="voice-note">Tillåt mikrofonåtkomst när Safari frågar. Använd sidan via HTTPS, inte som en nedladdad lokal fil. På iPhone behöver Safari stöd för taligenkänning och en aktiv internetanslutning kan krävas.</p><div class="voice-status" id="voiceStatus">${VoiceAPI?'Redo att testa mikrofonen':'Taligenkänning stöds inte av den här webbläsaren.'}</div><div class="voice-actions"><button class="btn gold" id="voiceBegin">🎙 STARTA VOICE CHALLENGE</button></div></div>`;
  game.querySelectorAll('[data-seconds]').forEach(b=>b.onclick=()=>{voiceSeconds=Number(b.dataset.seconds);voiceIntro()});
- const b=$('#voiceBegin');if(b)b.onclick=()=>{idx=0;correct=0;wrong=0;voiceQuestion()};
+ const b=$('#voiceBegin');if(b)b.onclick=()=>{unlockVoice();idx=0;correct=0;wrong=0;voiceQuestion()};
 }
 function voiceQuestion(){
  if('speechSynthesis' in window)window.speechSynthesis.cancel();
  stopVoice();if(mode!=='voice')return;if(idx>=order.length)return finish();
  const word=WORDS[order[idx]];const duration=voiceSeconds;
- game.innerHTML=`<div class="voice-panel">${topProgress()}<div class="sub">SÄG DET ENGELSKA ORDET FÖR</div><div class="question">${esc(word[1])}</div><div class="voice-time" id="voiceCountdown">${duration}</div><div class="voice-status" id="voiceStatus">Tryck på mikrofonen för att börja</div><div class="voice-heard" id="voiceHeard" aria-live="polite"></div><div class="voice-actions"><button class="btn gold" id="voiceListen">🎙 SVARA MED RÖSTEN</button><button class="btn" id="voiceSkip">HOPPA ÖVER</button></div><p class="voice-note">Tiden börjar när du trycker på mikrofonen. Tala tydligt på engelska.</p></div>`;
- $('#voiceListen').onclick=()=>voiceListen(word);
+ game.innerHTML=`<div class="voice-panel">${topProgress()}<div class="sub">SÄG DET ENGELSKA ORDET FÖR</div><div class="question">${esc(word[1])}</div><div class="voice-time" id="voiceCountdown">${duration}</div><div class="voice-status" id="voiceStatus">Tryck på mikrofonen för att börja</div><div class="voice-heard" id="voiceHeard" aria-live="polite"></div><div class="voice-actions"><button class="btn gold" id="voiceListen">🎙 SVARA MED RÖSTEN</button><button class="btn" id="voiceSkip">HOPPA ÖVER</button><button class="btn" id="voiceTestSound">🔊 TESTA LJUD</button></div><p class="voice-note">På iPhone: testa först 🔊 TESTA LJUD. Safari kan kräva att du trycker på LYSSNA IGEN för uppläsning. Tiden börjar när du trycker på mikrofonen. Tala tydligt på engelska.</p></div>`;
+ $('#voiceListen').onclick=()=>{unlockVoice();voiceListen(word)};
+  const testSound=$('#voiceTestSound');if(testSound)testSound.onclick=()=>{const ok=pronounceEnglish(word[0]);$('#voiceStatus').textContent=ok?'Spelar upp engelskt ord …':'Uppläsning stöds inte. Kontrollera ljudvolymen.'};
  $('#voiceSkip').onclick=()=>{if(!voiceState)voiceState={done:false,timer:null,rec:null};voiceResolve(false,'Överhoppat. Rätt svar: '+word[0])};
 }
 // Read the correct English word aloud after an incorrect answer.
@@ -157,10 +160,10 @@ function voiceResolve(ok,message){
  const next=$('#voiceNext');if(next)next.onclick=()=>{if('speechSynthesis' in window)window.speechSynthesis.cancel();idx++;voiceQuestion()};
 }
 function voiceListen(word){
- if(!VoiceAPI){$('#voiceStatus').textContent='Taligenkänning stöds inte i denna Safari-version.';return}
+ if(!VoiceAPI){$('#voiceStatus').textContent='Taligenkänning stöds inte här. Använd alternativet HOPPA ÖVER och LYSSNA IGEN för uttal.';return}
  stopVoice();const v={rec:null,timer:null,done:false,remaining:voiceSeconds,heard:[]};voiceState=v;
  const btn=$('#voiceListen');btn.disabled=true;
- let rec;try{rec=new VoiceAPI();rec.lang='en-US';rec.continuous=true;rec.interimResults=true;rec.maxAlternatives=5;v.rec=rec}catch(e){voiceState=null;btn.disabled=false;$('#voiceStatus').textContent='Kunde inte starta mikrofonen.';return}
+ let rec;try{rec=new VoiceAPI();rec.lang='en-US';rec.continuous=false;rec.interimResults=false;rec.maxAlternatives=5;v.rec=rec}catch(e){voiceState=null;btn.disabled=false;$('#voiceStatus').textContent='Kunde inte starta mikrofonen.';return}
  const expected=normalize(word[0]);
  rec.onresult=e=>{
   if(v.done||voiceState!==v)return;
@@ -175,7 +178,7 @@ function voiceListen(word){
   const message=e.error==='not-allowed'||e.error==='service-not-allowed'?'Mikrofonen nekades. Tillåt mikrofon/taligenkänning i Safari.':e.error==='network'?'Taligenkänningen kräver nätverk i den här webbläsaren.':'Taligenkänningen kunde inte användas ('+e.error+').';
   voiceResolve(false,message+' Rätt svar: '+word[0]);
  };
- rec.onend=()=>{if(v.done||voiceState!==v)return;try{rec.start()}catch(e){/* countdown continues even if recognition stopped */}};
+ rec.onend=()=>{if(v.done||voiceState!==v)return;const status=$('#voiceStatus');if(status)status.textContent='Taligenkänningen avslutades. Vänta på tiden eller hoppa över.'};
  try{rec.start()}catch(e){voiceState=null;btn.disabled=false;$('#voiceStatus').textContent='Safari kunde inte starta taligenkänning: '+e.message;return}
  $('#voiceStatus').textContent='LYSSNAR …';
  const deadline=Date.now()+voiceSeconds*1000;
